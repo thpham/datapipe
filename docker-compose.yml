@@ -1,0 +1,327 @@
+version: "3.2"
+services:
+  zookeeper:
+    image: wurstmeister/zookeeper:latest
+    ports:
+      - 2181:2181
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "200k"
+        max-file: "10"
+
+  kafka:
+    image: wurstmeister/kafka:0.10.2.1
+    ports:
+      - 9092:9092
+    environment:
+      #HOSTNAME_COMMAND: "docker info | grep ^Name: | cut -d' ' -f 2"
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      #KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INSIDE:PLAINTEXT,OUTSIDE:PLAINTEXT
+      #KAFKA_ADVERTISED_PROTOCOL_NAME: OUTSIDE
+      #KAFKA_ADVERTISED_PORT: 9094
+      #KAFKA_PROTOCOL_NAME: INSIDE
+      #KAFKA_PORT: 9092
+      KAFKA_ADVERTISED_PORT: 9092
+      KAFKA_ADVERTISED_HOST_NAME: kafka
+      KAFKA_DELETE_TOPIC_ENABLE: 'true'
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'false'
+      KAFKA_NUM_REPLICA_FETCHERS: 4
+      KAFKA_NUM_IO_THREADS: 8
+      KAFKA_NUM_NETWORK_THREADS: 8
+      KAFKA_LOG_RETENTION_BYTES: 3000000000 # 3Gb
+      KAFKA_LOG_RETENTION_HOURS: 48
+      KAFKA_LOG_ROLL_HOURS: 1
+      KAFKA_LOG_SEGMENT_BYTES: 1000000000 # 1Gb
+      KAFKA_LOG_CLEANER_ENABLE: 'true'
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "200k"
+        max-file: "10"
+    depends_on:
+      - zookeeper
+  
+  redis:
+    image: redis
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "200k"
+        max-file: "10"
+
+  postgres:
+    image: postgres:10-alpine
+    ports:
+      - 5432:5432
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+      - ./init-user-db.sh:/docker-entrypoint-initdb.d/init-user-db.sh
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "200k"
+        max-file: "10"
+  
+  adminer:
+    image: dockette/adminer:full-php5
+    ports:
+      - 8543:80
+    #environment:
+    #  ADMINER_PLUGINS: ''
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "200k"
+        max-file: "10"
+    depends_on:
+      - postgres
+
+  druid-broker:
+    build:
+      context: ./druid
+      args:
+        DRUID_VERSION: 0.10.1
+    image: druid
+    ports:
+      - 8082:8082
+    environment:
+      JAVA_EXTRA_OPTIONS: -XX:MaxDirectMemorySize=6144m
+      ZOOKEEPER_HOST: zookeeper
+      ZOOKEEPER_PORT: 2181
+      KAFKA_HOST: kafka
+      KAFKA_PORT: 9092
+      SCAN_QUERY_ENABLED: 'true'
+    volumes:
+      - druid-data:/opt/druid/current/var
+    command: broker
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "200k"
+        max-file: "10"
+    depends_on:
+      - zookeeper
+      - kafka
+      - postgres
+  
+  druid-coordinator:
+    image: druid
+    ports:
+      - 8081:8081
+    environment:
+      JAVA_EXTRA_OPTIONS: -XX:MaxDirectMemorySize=3069m
+      ZOOKEEPER_HOST: zookeeper
+      ZOOKEEPER_PORT: 2181
+      KAFKA_HOST: kafka
+      KAFKA_PORT: 9092
+    volumes:
+      - druid-data:/opt/druid/current/var
+    command: coordinator
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "200k"
+        max-file: "10"
+    depends_on:
+      - zookeeper
+      - kafka
+      - postgres
+  
+  druid-historical:
+    image: druid
+    ports:
+      - 8083:8083
+    environment:
+      JAVA_EXTRA_OPTIONS: -XX:MaxDirectMemorySize=6144m
+      ZOOKEEPER_HOST: zookeeper
+      ZOOKEEPER_PORT: 2181
+      KAFKA_HOST: kafka
+      KAFKA_PORT: 9092
+    volumes:
+      - druid-data:/opt/druid/current/var
+    command: historical
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "200k"
+        max-file: "10"
+    depends_on:
+      - zookeeper
+      - kafka
+      - postgres
+
+  druid-middleManager:
+    image: druid
+    ports:
+      - 8091:8091
+      - 8100-8199:8100-8199
+    environment:
+      JAVA_EXTRA_OPTIONS: -XX:MaxDirectMemorySize=3069m
+      ZOOKEEPER_HOST: zookeeper
+      ZOOKEEPER_PORT: 2181
+      KAFKA_HOST: kafka
+      KAFKA_PORT: 9092
+    volumes:
+      - druid-data:/opt/druid/current/var
+    command: middleManager
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "200k"
+        max-file: "10"
+    depends_on:
+      - zookeeper
+      - kafka
+      - postgres
+  
+  druid-overlord:
+    image: druid
+    ports:
+      - 8090:8090
+    environment:
+      JAVA_EXTRA_OPTIONS: -XX:MaxDirectMemorySize=6144m
+      ZOOKEEPER_HOST: zookeeper
+      ZOOKEEPER_PORT: 2181
+      KAFKA_HOST: kafka
+      KAFKA_PORT: 9092
+    volumes:
+      - druid-data:/opt/druid/current/var
+    command: overlord
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "200k"
+        max-file: "10"
+    depends_on:
+      - zookeeper
+      - kafka
+      - postgres
+  
+  tranquility:
+    build:
+      context: ./tranquility
+      args:
+        TRANQUILITY_VERSION: 0.8.2
+    image: tranquility
+    ports:
+      - 8201:8200
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "200k"
+        max-file: "10"
+    depends_on:
+      - zookeeper
+      - kafka
+      - druid-broker
+      - druid-coordinator
+      - druid-historical
+      - druid-middleManager
+      - druid-overlord
+  
+  superset:
+    build:
+      context: ./superset
+      args:
+        SUPERSET_VERSION: 0.20.4
+    image: superset
+    ports:
+      - 8088:8088
+    environment:
+      MAPBOX_API_KEY: ''
+      POSTGRES_USER: superset
+      POSTGRES_PASSWORD: superset
+      POSTGRES_DB: superset
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "200k"
+        max-file: "10"
+    depends_on:
+      - redis
+      - postgres
+      - adminer
+  
+  spark-master:
+    build:
+      context: ./spark
+      args:
+        SPARK_VERSION: 2.2.0
+        HADOOP_VERSION: 2.7.4
+    image: spark
+    ports:
+      - 2040:4040
+      - 2066:6066
+      - 2077:7077
+      - 2080:8080
+    environment:
+      MASTER: spark://spark-master:7077
+      SPARK_CONF_DIR: /conf
+      SPARK_PUBLIC_DNS: localhost
+    volumes:
+      - ./conf/master:/conf
+      - spark-master-data:/tmp/data
+    command: master
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "200k"
+        max-file: "10"
+
+  spark-worker:
+    image: spark
+    ports:
+      - 8081
+      - 8881
+    environment:
+      SPARK_CONF_DIR: /conf
+      SPARK_WORKER_CORES: 2
+      SPARK_WORKER_MEMORY: 1g
+      SPARK_WORKER_PORT: 8881
+      SPARK_WORKER_WEBUI_PORT: 8081
+      SPARK_PUBLIC_DNS: localhost
+    volumes:
+      - ./conf/worker:/conf
+      - spark-worker-data:/tmp/data
+    command: worker
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "200k"
+        max-file: "10"
+    depends_on:
+      - spark-master
+
+volumes:
+  pg-data:
+  druid-data:
+  redis-data:
+  spark-master-data:
+  spark-worker-data:
+
+networks:
+  default:
+    external:
+      name: datapipe

@@ -1,0 +1,55 @@
+{
+  "type": "kafka",
+  "dataSchema": {
+    "dataSource": "metrics-kafka",
+    "parser": {
+      "type": "string",
+      "parseSpec": {
+        "format": "json",
+        "timestampSpec": {
+          "column": "timestamp",
+          "format": "auto"
+        },
+        "dimensionsSpec": {
+          "dimensions": [
+            "unit",
+            "http_method",
+            {
+              "name": "value",
+              "type": "integer"
+            },
+            "timestamp",
+            "http_code",
+            "page",
+            "server"
+          ],
+          "dimensionExclusions": [
+            "metricType"
+          ],
+          "spatialDimensions" : []
+        }
+      }
+    },
+    "metricsSpec": [
+
+    ],
+    "granularitySpec": {
+      "type": "uniform",
+      "segmentGranularity": "HOUR",
+      "queryGranularity": "NONE"
+    }
+  },
+  "tuningConfig": {
+    "type": "kafka",
+    "maxRowsPerSegment": 5000000
+  },
+  "ioConfig": {
+    "topic": "metrics",
+    "consumerProperties": {
+      "bootstrap.servers": "kafka:9092"
+    },
+    "taskCount": 1,
+    "replicas": 1,
+    "taskDuration": "PT1H"
+  }
+}
