@@ -40,9 +40,35 @@ RUN mkdir -p /opt && \
 RUN cd /opt/spark/jars && \
     curl -O https://storage.googleapis.com/hadoop-lib/gcs/gcs-connector-latest-hadoop2.jar
 
+
+RUN apk add --no-cache python3 && \
+    python3 -m ensurepip && \
+    rm -r /usr/lib/python*/ensurepip && \
+    pip3 install --upgrade pip setuptools && \
+    if [ ! -e /usr/bin/pip ]; then ln -s pip3 /usr/bin/pip ; fi && \
+    if [[ ! -e /usr/bin/python ]]; then ln -sf /usr/bin/python3 /usr/bin/python; fi && \
+    rm -r /root/.cache
+
+
+# Python Machine Learning tools
+RUN apk add --no-cache libstdc++ lapack-dev && \
+    apk add --no-cache \
+        --virtual=.build-dependencies \
+        g++ gfortran musl-dev \
+        python3-dev && \
+    ln -s locale.h /usr/include/xlocale.h && \
+    pip install numpy && \
+    pip install pandas && \
+    pip install scipy && \
+    pip install scikit-learn && \
+    find /usr/lib/python3.*/ -name 'tests' -exec rm -r '{}' + && \
+    rm /usr/include/xlocale.h && \
+    rm -r /root/.cache && \
+    apk del .build-dependencies
+
 # if numpy is installed on a driver it needs to be installed on all
 # workers, so install it everywhere
-RUN apk --update --no-cache add py-numpy
+#RUN apk --update --no-cache add python python-dev py-pip build-base py-numpy
 
 EXPOSE 4040 6066 7001-7006 7012-7016 7077 8080 8081 8881
 
