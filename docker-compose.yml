@@ -93,7 +93,7 @@ services:
     build:
       context: ./druid
       args:
-        DRUID_VERSION: 0.10.1
+        DRUID_VERSION: 0.12.1
     image: druid
     ports:
       - 8082:8082
@@ -242,7 +242,7 @@ services:
     build:
       context: ./superset
       args:
-        SUPERSET_VERSION: 0.20.4
+        SUPERSET_VERSION: 0.26.3
     image: superset
     ports:
       - 8088:8088
@@ -266,8 +266,8 @@ services:
     build:
       context: ./spark
       args:
-        SPARK_VERSION: 2.2.0
-        HADOOP_VERSION: 2.7.4
+        SPARK_VERSION: 2.2.2
+        HADOOP_VERSION: 2.7.7
     image: spark
     ports:
       - 2040:4040

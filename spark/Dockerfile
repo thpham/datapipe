@@ -15,8 +15,8 @@ RUN rm /etc/localtime && \
     ln -s /usr/share/zoneinfo/$TIMEZONE /etc/localtime
 
 # Druid version
-ARG SPARK_VERSION=2.2.0
-ARG HADOOP_VERSION=2.7.4
+ARG SPARK_VERSION=2.2.2
+ARG HADOOP_VERSION=2.7.7
 
 # Get Hadoop from EU Apache mirror and extract just the native
 # libs. (Until we care about running HDFS with these containers, this

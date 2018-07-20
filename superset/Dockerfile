@@ -1,7 +1,7 @@
 FROM debian:stretch
 
 # Superset version
-ARG SUPERSET_VERSION=0.20.4
+ARG SUPERSET_VERSION=0.26.3
 
 RUN apt-get update && \
     apt-get install -y \
@@ -21,6 +21,7 @@ RUN useradd -U -m superset && \
         libpq-dev \
         libsasl2-dev \
         libssl-dev \
+        libffi-dev \
         openjdk-8-jdk \
         python3-dev \
         python3-pip

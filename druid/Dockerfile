@@ -22,7 +22,7 @@ RUN mkdir -p ${DRUID_HOME} && addgroup druid && adduser -G druid -g '' -h ${DRUI
 EXPOSE 8081 8082 8083 8084 8088 8090 8091 8100-8199
 
 # Druid version
-ARG DRUID_VERSION=0.10.1
+ARG DRUID_VERSION=0.12.1
 
 # install druid
 RUN cd /tmp \
