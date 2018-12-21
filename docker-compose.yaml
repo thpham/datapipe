@@ -1,0 +1,390 @@
+version: "3.2"
+services:
+  mosquitto:
+    image: eclipse-mosquitto:1.5.5
+    hostname: mosquitto
+    container_name: mosquitto
+    restart: unless-stopped
+    expose:
+      - "1883"
+      - "9001"
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    #volumes:
+    #  - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf
+
+  mongodb:
+    image: mongo:3.6
+    hostname: mongodb
+    container_name: mongodb
+    restart: unless-stopped
+    expose:
+      - "27017"
+    ports:
+      - "27017:27017"
+    command: --bind_ip_all --smallfiles
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: mongodb
+      MONGO_INITDB_ROOT_PASSWORD: mongodb
+    volumes:
+      - mongodb:/data
+  
+  postgres:
+    image: postgres:9.6.5-alpine
+    hostname: postgres
+    container_name: postgres
+    restart: unless-stopped
+    ports:
+      - 5432:5432
+    environment:
+      POSTGRES_DB: dev
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - postgres:/var/lib/postgresql/data
+  
+  adminer:
+    image: adminer:4.7-custom
+    build:
+      context: ./adminer
+      dockerfile: Dockerfile
+    hostname: adminer
+    container_name: adminer
+    restart: unless-stopped
+    ports:
+      - 8543:8080
+    environment:
+      ADMINER_DESIGN: nette
+      ADMINER_DEFAULT_SERVER: postgres
+      #ADMINER_PLUGINS: 'login-servers'
+    logging:
+      driver: json-file
+      options:
+        max-size: "200k"
+        max-file: "10"
+    depends_on:
+      - postgres
+      - mongodb
+
+  zk:
+    image: confluentinc/cp-zookeeper:5.1.0
+    hostname: zk
+    container_name: zk
+    restart: unless-stopped
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_TICK_TIME: 2000
+      ZOOKEEPER_CLIENT_PORT: 2181
+      KAFKA_JMX_HOSTNAME: zk
+      KAFKA_JMX_PORT: 39999
+    volumes:
+      - zk-data:/data
+      - zk-datalog:/datalog
+
+  kafka:
+    image: confluentinc/cp-enterprise-kafka:5.1.0
+    hostname: kafka
+    container_name: kafka
+    restart: unless-stopped
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: 'zk:2181'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_METRIC_REPORTERS: io.confluent.metrics.reporter.ConfluentMetricsReporter
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      CONFLUENT_METRICS_REPORTER_BOOTSTRAP_SERVERS: kafka:9092
+      CONFLUENT_METRICS_REPORTER_ZOOKEEPER_CONNECT: zk:2181
+      CONFLUENT_METRICS_REPORTER_TOPIC_REPLICAS: 1
+      CONFLUENT_METRICS_ENABLE: 'true'
+      CONFLUENT_SUPPORT_CUSTOMER_ID: 'anonymous'
+      KAFKA_JMX_PORT: 49999
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    depends_on:
+      - zk
+  
+  control-center:
+    image: confluentinc/cp-enterprise-control-center:5.1.0
+    hostname: control-center
+    container_name: control-center
+    restart: unless-stopped
+    ports:
+      - "9021:9021"
+    environment:
+      CONTROL_CENTER_BOOTSTRAP_SERVERS: 'kafka:9092'
+      CONTROL_CENTER_ZOOKEEPER_CONNECT: 'zk:2181'
+      CONTROL_CENTER_CONNECT_CLUSTER: 'connect-dev:8083'
+      CONTROL_CENTER_KSQL_URL: "http://ksql-server:8088"
+      CONTROL_CENTER_KSQL_ADVERTISED_URL: "http://localhost:8088"
+      CONTROL_CENTER_REPLICATION_FACTOR: 1
+      CONTROL_CENTER_INTERNAL_TOPICS_PARTITIONS: 1
+      CONTROL_CENTER_MONITORING_INTERCEPTOR_TOPIC_PARTITIONS: 1
+      CONFLUENT_METRICS_TOPIC_REPLICATION: 1
+      PORT: 9021
+    depends_on:
+      - zk
+      - kafka
+      - schema-registry
+      - connect-dev
+      - ksql-server
+
+  schema-registry:
+    image: confluentinc/cp-schema-registry:5.1.0
+    hostname: schema-registry
+    container_name: schema-registry
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    environment:
+      SCHEMA_REGISTRY_KAFKASTORE_CONNECTION_URL: zk:2181
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+      SCHEMA_REGISTRY_JMX_PORT: 9582
+      KAFKA_JMX_HOSTNAME: schema-registry
+      KAFKA_JMX_PORT: 9582
+    depends_on:
+      - zk
+      - kafka
+
+  schema-registry-ui:
+    image: landoop/schema-registry-ui:0.9.5
+    hostname: schema-registry-ui
+    container_name: schema-registry-ui
+    restart: unless-stopped
+    ports:
+      - "8001:8000"
+    environment:
+      SCHEMAREGISTRY_URL: http://schema-registry:8081/
+      PROXY: "true"
+    depends_on:
+      - schema-registry
+
+  rest-proxy:
+    image: confluentinc/cp-kafka-rest:5.1.0
+    hostname: rest-proxy
+    container_name: rest-proxy
+    restart: unless-stopped
+    ports:
+      - "8082:8082"
+    environment:
+      KAFKA_REST_ZOOKEEPER_CONNECT: zk:2181
+      KAFKA_REST_LISTENERS: http://0.0.0.0:8082/
+      KAFKA_REST_SCHEMA_REGISTRY_URL: http://schema-registry:8081/
+      KAFKA_REST_HOST_NAME: rest-proxy
+      KAFKA_REST_BOOTSTRAP_SERVERS: kafka:9092
+    depends_on:
+      - zk
+      - kafka
+      - schema-registry
+
+  ksql-server:
+    image: confluentinc/cp-ksql-server:5.1.0
+    hostname: ksql-server
+    container_name: ksql-server
+    restart: unless-stopped
+    ports:
+      - "8088:8088"
+    environment:
+      KSQL_CONFIG_DIR: "/etc/ksql"
+      #KSQL_OPTS: ""
+      KSQL_LOG4J_OPTS: "-Dlog4j.configuration=file:/etc/ksql/log4j-rolling.properties"
+      KSQL_BOOTSTRAP_SERVERS: "kafka:9092"
+      KSQL_HOST_NAME: ksql-server
+      KSQL_APPLICATION_ID: "cp-all-in-one"
+      KSQL_LISTENERS: "http://0.0.0.0:8088"
+      KSQL_CACHE_MAX_BYTES_BUFFERING: 0
+      KSQL_KSQL_SCHEMA_REGISTRY_URL: "http://schema-registry:8081"
+      KSQL_PRODUCER_INTERCEPTOR_CLASSES: "io.confluent.monitoring.clients.interceptor.MonitoringProducerInterceptor"
+      KSQL_CONSUMER_INTERCEPTOR_CLASSES: "io.confluent.monitoring.clients.interceptor.MonitoringConsumerInterceptor"
+    depends_on:
+      - kafka
+      - schema-registry
+  
+  ksql-cli:
+    image: confluentinc/cp-ksql-cli:5.1.0
+    container_name: ksql-cli
+    restart: unless-stopped
+    depends_on:
+      - kafka
+      - ksql-server
+    entrypoint: /bin/sh
+    tty: true
+   
+  kafka-topics-ui:
+    image: landoop/kafka-topics-ui:0.9.4
+    hostname: kafka-topics-ui
+    container_name: kafka-topics-ui
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      KAFKA_REST_PROXY_URL: "http://rest-proxy:8082/"
+      PROXY: "true"
+    depends_on:
+      - zk
+      - kafka
+      - schema-registry
+      - rest-proxy
+
+  connect-dev:
+    image: confluentinc/cp-kafka-connect:5.1.0-custom
+    build:
+      context: ./cp-kafka-connect
+      dockerfile: Dockerfile
+    hostname: connect-dev
+    container_name: connect-dev
+    restart: unless-stopped
+    ports:
+      - "8083:8083"
+    environment:
+      KAFKA_JMX_HOSTNAME: connect-dev
+      KAFKA_JMX_PORT: 9584
+      CONNECT_BOOTSTRAP_SERVERS: "kafka:9092"
+      CONNECT_REST_ADVERTISED_HOST_NAME: connect-dev
+      CONNECT_REST_PORT: 8083
+      CONNECT_GROUP_ID: connect-dev-group
+      CONNECT_CONFIG_STORAGE_TOPIC: connect-dev-configs
+      CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_OFFSET_FLUSH_INTERVAL_MS: 10000
+      CONNECT_OFFSET_STORAGE_TOPIC: connect-dev-offsets
+      CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_STATUS_STORAGE_TOPIC: connect-dev-status
+      CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_VALUE_CONVERTER_SCHEMAS_ENABLE: "false"
+      #CONNECT_KEY_CONVERTER: io.confluent.connect.avro.AvroConverter
+      #CONNECT_KEY_CONVERTER_SCHEMA_REGISTRY_URL: "http://schema-registry:8081"
+      #CONNECT_VALUE_CONVERTER: io.confluent.connect.avro.AvroConverter
+      #CONNECT_VALUE_CONVERTER_SCHEMA_REGISTRY_URL: "http://schema-registry:8081"
+      CONNECT_KEY_CONVERTER: org.apache.kafka.connect.storage.StringConverter
+      CONNECT_VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_INTERNAL_KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_INTERNAL_VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_ZOOKEEPER_CONNECT: 'zk:2181'
+      CLASSPATH: /usr/share/java/monitoring-interceptors/monitoring-interceptors-5.1.0.jar
+      CONNECT_PRODUCER_INTERCEPTOR_CLASSES: "io.confluent.monitoring.clients.interceptor.MonitoringProducerInterceptor"
+      CONNECT_CONSUMER_INTERCEPTOR_CLASSES: "io.confluent.monitoring.clients.interceptor.MonitoringConsumerInterceptor"
+      CONNECT_PLUGIN_PATH: "/usr/share/java,/usr/share/confluent-hub-components"
+      CONNECT_LOG4J_LOGGERS: org.apache.zookeeper=ERROR,org.I0Itec.zkclient=ERROR,org.reflections=ERROR
+      CLASSPATH: /usr/share/java/monitoring-interceptors/monitoring-interceptors-5.0.0.jar
+    depends_on:
+      - zk
+      - kafka
+      - schema-registry
+      - rest-proxy
+  
+  kafka-connect-ui:
+    image: landoop/kafka-connect-ui:0.9.6
+    hostname: kafka-connect-ui
+    container_name: kafka-connect-ui
+    restart: unless-stopped
+    ports:
+      - "8003:8000"
+    environment:
+      CONNECT_URL: "http://connect-dev:8083/"
+      PROXY: "true"
+    depends_on:
+      - connect-dev
+
+  zoonavigator-web:
+    image: elkozmon/zoonavigator-web:0.5.1
+    hostname: zoonavigator-web
+    container_name: zoonavigator-web
+    restart: unless-stopped
+    ports:
+     - "8004:8000"
+    environment:
+      API_HOST: "zoonavigator-api"
+      API_PORT: 9000
+      #AUTO_CONNECT_CONNECTION_STRING: ""
+      #AUTO_CONNECT_AUTH_INFO: 
+    links:
+     - zoonavigator-api
+    depends_on:
+     - zoonavigator-api
+
+  zoonavigator-api:
+    image: elkozmon/zoonavigator-api:0.5.1
+    hostname: oonavigator-api
+    container_name: zoonavigator-api
+    restart: unless-stopped
+    environment:
+      SERVER_HTTP_PORT: 9000
+    depends_on:
+      - zk
+  
+  kafka-manager:
+    image: solsson/kafka-manager
+    container_name: kafka-manager
+    restart: unless-stopped
+    ports:
+     - "8005:80"
+    environment:
+      ZK_HOSTS: "zk:2181"
+    command: -Dhttp.port=80
+    depends_on:
+      - kafka
+  
+  lenses:
+    image: landoop/lenses:2.2.2
+    hostname: lenses
+    container_name: lenses
+    restart: unless-stopped
+    ports:
+      - 9991:9991
+      - 9102:9102 # Prometheus scrape port
+    environment:
+      LENSES_PORT: 9991
+      LENSES_KAFKA_BROKERS: "PLAINTEXT://kafka:9092"
+      #LICENSE: "$(cat license.json)"
+      LENSES_ZOOKEEPER_HOSTS: |
+        [
+          {url:"zk:2181", jmx:"zk:39999"}
+        ]
+      LENSES_SCHEMA_REGISTRY_URLS: |
+        [
+          {url:"http://schema-registry:8081",jmx:"schema-registry:9582"}
+        ]
+      LENSES_CONNECT_CLUSTERS: |
+        [
+          {
+            name:"dev",
+            urls: [
+              {url:"http://connect-dev:8083",jmx:"connect-dev:9584"}
+            ],
+            statuses:"connect-dev-statuses",
+            configs:"connect-dev-configs",
+            offsets:"connect-dev-offsets"
+          }
+        ]
+      LENSES_SECURITY_MODE: BASIC
+      # Secrets can also be passed as files. Check _examples/
+      LENSES_SECURITY_GROUPS: |
+        [
+          {"name": "adminGroup", "roles": ["admin", "write", "read"]},
+          {"name": "readGroup",  "roles": ["read"]}
+        ]
+      LENSES_SECURITY_USERS: |
+        [
+          {"username": "admin", "password": "admin", "displayname": "Lenses Admin", "groups": ["adminGroup"]},
+          {"username": "read", "password": "read", "displayname": "Read Only", "groups": ["readGroup"]}
+        ]
+    volumes:
+      - lenses-log:/data/log
+      - lenses-kafka-state:/data/kafka-streams-state
+      - ./license.json:/data/license.json
+
+volumes:
+  mongodb: {}
+  postgres: {}
+  zk-data: {}
+  zk-datalog: {} 
+  kafka-data: {}
+  lenses-log: {}
+  lenses-kafka-state: {}
